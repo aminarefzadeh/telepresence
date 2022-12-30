@@ -5,15 +5,13 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/datawire/dlib/dlog"
+	"github.com/datawire/k8sapi/pkg/k8sapi"
+	"github.com/telepresenceio/telepresence/v2/pkg/client/userd"
 	auth "k8s.io/api/authorization/v1"
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	typedAuth "k8s.io/client-go/kubernetes/typed/authorization/v1"
-	"k8s.io/client-go/tools/cache"
-
-	"github.com/datawire/dlib/dlog"
-	"github.com/datawire/k8sapi/pkg/k8sapi"
-	"github.com/telepresenceio/telepresence/v2/pkg/client/userd"
 )
 
 // nsWatcher runs a Kubernetes Watcher that provide information about the cluster's namespaces'.
@@ -22,6 +20,7 @@ import (
 // the DNS-resolver in the root daemon each time an update arrives.
 //
 // The first update will close the firstSnapshotArrived channel.
+
 func (kc *Cluster) startNamespaceWatcher(c context.Context) {
 	cond := sync.Cond{}
 	cond.L = &kc.nsLock
@@ -33,17 +32,6 @@ func (kc *Cluster) startNamespaceWatcher(c context.Context) {
 	kc.nsWatcher = k8sapi.NewWatcher("namespaces", kc.ki.CoreV1().RESTClient(), &cond, k8sapi.WithEquals[*core.Namespace](func(a, b *core.Namespace) bool {
 		return a.Name == b.Name
 	}))
-
-	ready := sync.WaitGroup{}
-	ready.Add(1)
-	go func() {
-		err := kc.nsWatcher.Watch(c, &ready)
-		if err != nil {
-			dlog.Errorf(c, "error watching namespaces: %s", err)
-		}
-	}()
-	ready.Wait()
-	cache.WaitForCacheSync(c.Done(), kc.nsWatcher.HasSynced)
 
 	kc.nsLock.Lock()
 	go func() {
@@ -64,12 +52,6 @@ func (kc *Cluster) startNamespaceWatcher(c context.Context) {
 	kc.nsLock.Lock()
 	cond.Broadcast() // force initial call to refreshNamespacesLocked
 	kc.nsLock.Unlock()
-}
-
-func (kc *Cluster) WaitForNSSync(c context.Context) {
-	if !kc.nsWatcher.HasSynced() {
-		cache.WaitForCacheSync(c.Done(), kc.nsWatcher.HasSynced)
-	}
 }
 
 func (kc *Cluster) canAccessNS(c context.Context, authHandler typedAuth.SelfSubjectAccessReviewInterface, namespace string) bool {
@@ -136,14 +118,9 @@ func (kc *Cluster) AddNamespaceListener(c context.Context, nsListener userd.Name
 
 func (kc *Cluster) refreshNamespacesLocked(c context.Context) {
 	authHandler := kc.ki.AuthorizationV1().SelfSubjectAccessReviews()
-	cns, err := kc.nsWatcher.List(c)
-	if err != nil {
-		dlog.Errorf(c, "error listing namespaces: %s", err)
-		return
-	}
+	cns := [1]string{"divar-cloud-sandboxing"}
 	namespaces := make(map[string]bool, len(cns))
-	for _, o := range cns {
-		ns := o.Name
+	for _, ns := range cns {
 		if kc.shouldBeWatched(ns) {
 			accessOk, ok := kc.currentMappedNamespaces[ns]
 			if !ok {

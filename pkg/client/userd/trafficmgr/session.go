@@ -597,7 +597,7 @@ func (s *session) getInfosForWorkloads(
 }
 
 func (s *session) waitForSync(ctx context.Context) {
-	s.WaitForNSSync(ctx)
+	//s.WaitForNSSync(ctx)
 	s.wlWatcher.setNamespacesToWatch(ctx, s.GetCurrentNamespaces(true))
 	s.wlWatcher.waitForSync(ctx)
 }
